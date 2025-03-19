@@ -1,0 +1,33 @@
+inspect: false
+last_directory: '~'
+mfcs:
+- com_port: ''
+  dev_address: 0
+  remote_port: 0
+  remote_server: ''
+  unique_dev_id: ''
+  virtual: true
+- com_port: ''
+  dev_address: 0
+  remote_port: 0
+  remote_server: ''
+  unique_dev_id: ''
+  virtual: true
+n_mfc: 2
+n_valve_boards: 2
+stage: {}
+valve_boards:
+- com_port: ''
+  dev_address: 0
+  remote_port: 0
+  remote_server: ''
+  reverse_relay: false
+  unique_dev_id: ''
+  virtual: true
+- com_port: ''
+  dev_address: 0
+  remote_port: 0
+  remote_server: ''
+  reverse_relay: false
+  unique_dev_id: ''
+  virtual: true
