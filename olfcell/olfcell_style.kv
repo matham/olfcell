@@ -356,11 +356,13 @@
             source: 'radiobox-blank.png' if self.state == 'normal' else 'radiobox-marked.png'
             flat_color: app.theme.accent
             on_release: root.set_pins(high=("tone",)) if self.state == 'down' else root.set_pins(low=("tone",))
+            hover_text: 'Tone'
         FlatImageToggleButton:
             id: current
             source: 'radiobox-blank.png' if self.state == 'normal' else 'radiobox-marked.png'
             flat_color: app.theme.accent
             on_release: root.set_pins(high=("current",)) if self.state == 'down' else root.set_pins(low=("current",))
+            hover_text: 'Current'
     FlatImageButton:
         board_settings: board_settings.__self__
         scale_down_color: True
