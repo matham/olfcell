@@ -25,6 +25,7 @@
             color: app.theme.divider
         ThemedSpinner:
             id: stage_name
+            disabled: app.stage.playing
             values: app.stage.protocols_name
             size_hint_x: None
             width: self.minimum_width
@@ -83,6 +84,12 @@
                 on_kv_post: app._mfc_container = self.__self__
                 spacing: '10dp'
                 size_hint_min_x: self.minimum_width
+            FlatDivider:
+                size_hint_y: None
+                height: '24dp'
+                color: app.theme.divider
+            RPIPinWidget:
+                on_kv_post: app.rpi_pins = self.__self__
 
 
 <ValveBoardWidget>:
@@ -292,6 +299,120 @@
                     text: root.com_port
                     on_text: root.com_port = self.text
                     hint_text: 'port'
+                ThemedLabel:
+                    size_hint: None, None
+                    size: self.texture_size[0], '24dp'
+                    text: 'Remote server:'
+                FlatSizedTextInput:
+                    background_color: app.theme.primary_text
+                    size_hint_min_x: '100dp'
+                    text: root.remote_server
+                    on_text: root.remote_server = self.text
+                    hint_text: 'host name'
+                ThemedLabel:
+                    size_hint: None, None
+                    size: self.texture_size[0], '24dp'
+                    text: 'Remote port:'
+                FlatSizedTextInput:
+                    background_color: app.theme.primary_text
+                    size_hint_min_x: '100dp'
+                    text: str(root.remote_port)
+                    on_text: root.remote_port = int(self.text or 0)
+                    hint_text: 'port number'
+                    input_filter: 'int'
+                ThemedLabel:
+                    size_hint: None, None
+                    size: self.texture_size[0], '24dp'
+                    text: 'Device ID:'
+                FlatSizedTextInput:
+                    background_color: app.theme.primary_text
+                    size_hint_min_x: '100dp'
+                    text: root.unique_dev_id
+                    on_text: root.unique_dev_id = self.text
+                    hint_text: 'unique ID'
+
+
+<RPIPinWidget>:
+    spacing: '7dp'
+    size_hint: None, None
+    size: self.minimum_width, '25dp'
+    on_data_update:
+        tone.state = 'down' if self.device.tone else 'normal'
+        current.state = 'down' if self.device.current else 'normal'
+    FlatImageToggleButton:
+        id: play
+        disabled: app.stage.playing
+        source: 'flat_play.png' if self.state == 'normal' else 'flat_stop.png'
+        flat_color: app.theme.accent
+        on_release: root.start() if self.state == 'down' else root.stop()
+        hover_text: '[b]start[/b] device' if self.state == 'normal' else '[b]stop[/b] device'
+    BoxLayout:
+        disabled: not root.is_running
+        spacing: '3dp'
+        size_hint_x: None
+        width: self.minimum_width
+        FlatImageToggleButton:
+            id: tone
+            source: 'radiobox-blank.png' if self.state == 'normal' else 'radiobox-marked.png'
+            flat_color: app.theme.accent
+            on_release: root.set_pins(high=("tone",)) if self.state == 'down' else root.set_pins(low=("tone",))
+        FlatImageToggleButton:
+            id: current
+            source: 'radiobox-blank.png' if self.state == 'normal' else 'radiobox-marked.png'
+            flat_color: app.theme.accent
+            on_release: root.set_pins(high=("current",)) if self.state == 'down' else root.set_pins(low=("current",))
+    FlatImageButton:
+        board_settings: board_settings.__self__
+        scale_down_color: True
+        source: 'flat_dots_vertical.png'
+        flat_color: app.theme.accent
+        on_release: self.board_settings.open(self)
+        FlatDropDown:
+            flat_color: app.theme.primary_text
+            flat_border_color: app.theme.divider
+            do_scroll: False, True
+            id: board_settings
+            on_kv_post: self.parent.remove_widget(self)
+            GridLayout:
+                disabled: root.is_running
+                size_hint_y: None
+                height: self.minimum_height
+                spacing: '10dp', '5dp'
+                size_hint_min_x: self.minimum_width
+                cols: 2
+                ThemedLabel:
+                    size_hint: None, None
+                    size: self.texture_size[0], '24dp'
+                    text: 'Device:'
+                AccentThemedToggleButton:
+                    text: 'Virtual device'
+                    state: 'down' if root.virtual else 'normal'
+                    size_hint_min_x: self.texture_size[0]
+                    padding_x: '10dp'
+                    on_state: root.virtual = self.state == 'down'
+                    hover_text: 'Device is virtual/real'
+                ThemedLabel:
+                    size_hint: None, None
+                    size: self.texture_size[0], '24dp'
+                    text: 'Tone pin #:'
+                FlatSizedTextInput:
+                    background_color: app.theme.primary_text
+                    size_hint_min_x: '100dp'
+                    text: str(root.tone_pin)
+                    on_text: root.tone_pin = int(self.text or 0)
+                    hint_text: 'tone pin'
+                    input_filter: 'int'
+                ThemedLabel:
+                    size_hint: None, None
+                    size: self.texture_size[0], '24dp'
+                    text: 'Current pin #:'
+                FlatSizedTextInput:
+                    background_color: app.theme.primary_text
+                    size_hint_min_x: '100dp'
+                    text: str(root.current_pin)
+                    on_text: root.current_pin = int(self.text or 0)
+                    hint_text: 'current pin'
+                    input_filter: 'int'
                 ThemedLabel:
                     size_hint: None, None
                     size: self.texture_size[0], '24dp'

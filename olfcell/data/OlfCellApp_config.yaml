@@ -15,6 +15,13 @@ mfcs:
   virtual: true
 n_mfc: 2
 n_valve_boards: 2
+rpi_pins:
+  current_pin: 0
+  remote_port: 0
+  remote_server: ''
+  tone_pin: 0
+  unique_dev_id: ''
+  virtual: true
 stage: {}
 valve_boards:
 - com_port: ''

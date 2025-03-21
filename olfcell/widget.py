@@ -6,7 +6,7 @@ from math import ceil
 import pathlib
 from time import perf_counter, sleep
 import os.path
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Iterable
 from kivy_trio.to_trio import kivy_run_in_async, mark, KivyEventCancelled
 from kivy_trio.to_kivy import AsyncKivyEventQueue
 from pymoa_remote.threading import ThreadExecutor
@@ -27,16 +27,20 @@ from kivy.uix.widget import Widget
 from kivy.event import EventDispatcher
 
 from olfcell.device import (
-    MODIOBase, MODIOBoard, VirtualMODIOBoard, MFCBase, MFC, VirtualMFC
+    MODIOBase, MODIOBoard, VirtualMODIOBoard, MFCBase, MFC, VirtualMFC,
+    RPIPinOutBase, RPIPinOut, VirtualRPIPinOut,
 )
 
 __all__ = ('ValveBoardWidget', 'MFCWidget', 'ExperimentStages')
 
 
-ProtocolItem = tuple[float, list[bool | None], list[float | None]]
+ProtocolItem = tuple[
+    float, list[bool | None], list[float | None], bool | None, bool | None
+]
 FlatProtocolItem = tuple[
     float, list[tuple['ValveBoardWidget', dict[str, bool]]],
-    list[tuple['MFCWidget', float]]
+    list[tuple['MFCWidget', float]],
+    tuple['RPIPinWidget', list[str], list[str]] | None,
 ]
 
 
@@ -201,6 +205,59 @@ class MFCWidget(BoxLayout, ExecuteDevice):
         self._event_queue.append(value)
 
 
+class RPIPinWidget(BoxLayout, ExecuteDevice):
+
+    _config_props_ = ('tone_pin', 'current_pin')
+
+    tone_pin: int = NumericProperty(0)
+
+    current_pin: int = NumericProperty(0)
+
+    device: Optional[RPIPinOutBase] = ObjectProperty(
+        None, allownone=True, rebind=True)
+
+    _event_queue: Optional[AsyncKivyEventQueue] = None
+
+    async def _run_device(self, executor: Executor):
+        device = self.device
+        async with self._event_queue as queue:
+            async for high, low in queue:
+                await device.write_states(high=high, low=low)
+
+    @app_error
+    @kivy_run_in_async
+    def start(self):
+        if self.virtual:
+            cls = VirtualRPIPinOut
+        else:
+            cls = RPIPinOut
+
+        self.is_running = True
+        self.device = cls(
+            tone_pin=self.tone_pin, current_pin=self.current_pin
+        )
+        self.device.fbind('on_data_update', self.dispatch, 'on_data_update')
+        self._event_queue = AsyncKivyEventQueue()
+
+        try:
+            yield mark(self.run_device)
+        except KivyEventCancelled:
+            pass
+        finally:
+            self._event_queue.stop()
+            self._event_queue = None
+            self.device = None
+            self.is_running = False
+
+    @app_error
+    def stop(self):
+        if self._event_queue is not None:
+            self._event_queue.stop()
+
+    def set_pins(self, high: Iterable[str] = (), low: Iterable[str] = ()):
+        self._event_queue.add_item(high, low)
+
+
 class ExperimentStages(EventDispatcher):
 
     playing: bool = BooleanProperty(False)
@@ -266,13 +323,16 @@ class ExperimentStages(EventDispatcher):
             # update only if not stopping
             self.stage_i = i + 1
 
-            dur, valves, mfcs = protocol[i]
+            dur, valves, mfcs, pins = protocol[i]
 
             rem_time += dur
             for board, values in valves:
                 board.set_valves(**values)
             for board, value in mfcs:
                 board.set_value(value)
+            if pins is not None:
+                widget, high, low = pins
+                widget.set_pins(high=high, low=low)
 
             self._total_stage_time = rem_time
 
@@ -288,11 +348,14 @@ class ExperimentStages(EventDispatcher):
 
     def _flatten_protocol(
             self, protocol: List[ProtocolItem]) -> List[FlatProtocolItem]:
-        valves: List[ValveBoardWidget] = self._app.valve_boards
-        mfcs: List[MFCWidget] = self._app.mfcs
+        from olfcell.main import OlfCellApp
+        app: OlfCellApp = self._app
+        valves: List[ValveBoardWidget] = app.valve_boards
+        mfcs: List[MFCWidget] = app.mfcs
+        rpi_pins: RPIPinWidget = app.rpi_pins
 
         stages = []
-        for dur, valve_states, mfc_vals in protocol:
+        for dur, valve_states, mfc_vals, tone_val, current_val in protocol:
             valve_groups = [
                 valve_states[i * 4: (i + 1) * 4]
                 for i in range(int(ceil(len(valve_states) / 4)))
@@ -317,7 +380,18 @@ class ExperimentStages(EventDispatcher):
                 (mfc, val) for mfc, val in zip(mfcs, mfc_vals)
                 if val is not None
             ]
-            stages.append((dur, prepped_valves, prepped_mfcs))
+
+            prepped_pins = None
+            if tone_val is not None and current_val is not None:
+                high = []
+                low = []
+                if tone_val is not None:
+                    (high if tone_val else low).append("tone")
+                if current_val is not None:
+                    (high if current_val else low).append("current")
+                prepped_pins = rpi_pins, high, low
+
+            stages.append((dur, prepped_valves, prepped_mfcs, prepped_pins))
 
         return stages
 
@@ -390,7 +464,10 @@ class ExperimentStages(EventDispatcher):
         while i < len(header) and header[i].lower().startswith('mfc_'):
             i += 1
         mfc_e = i
-        if i != len(header):
+        tone_i = header.index("tone", mfc_e)
+        current_i = header.index("current", mfc_e)
+
+        if i + 2 != len(header):
             raise ValueError(
                 f'Reached column "{header[i]}" that does not start with valve_ '
                 f'or mfc_')
@@ -407,8 +484,10 @@ class ExperimentStages(EventDispatcher):
             ]
             mfcs = [
                 float(row[k]) if row[k] else None for k in range(mfc_s, mfc_e)]
+            tone = bool(int(row[tone_i])) if row[tone_i] else None
+            current = bool(int(row[current_i])) if row[current_i] else None
 
-            protocol.append((dur, valves, mfcs))
+            protocol.append((dur, valves, mfcs, tone, current))
 
         return protocol, (valve_names, mfc_names)
 

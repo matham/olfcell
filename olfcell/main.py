@@ -12,7 +12,9 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.behaviors.focus import FocusBehavior
 
 import olfcell
-from olfcell.widget import ValveBoardWidget, MFCWidget, ExperimentStages
+from olfcell.widget import (
+    ValveBoardWidget, MFCWidget, RPIPinWidget, ExperimentStages
+)
 
 __all__ = ('OlfCellApp', 'run_app')
 
@@ -33,7 +35,8 @@ class OlfCellApp(BaseKivyApp):
     )
 
     _config_children_ = {
-        'valve_boards': 'valve_boards', 'mfcs': 'mfcs', 'stage': 'stage'
+        'valve_boards': 'valve_boards', 'mfcs': 'mfcs',
+        'rpi_pins': 'rpi_pins', 'stage': 'stage'
     }
 
     last_directory = StringProperty('~')
@@ -62,6 +65,8 @@ class OlfCellApp(BaseKivyApp):
     n_mfc: int = NumericProperty(1)
 
     mfcs: list[MFCWidget] = []
+
+    rpi_pins: RPIPinWidget = None
 
     stage: ExperimentStages = ObjectProperty(None)
 
@@ -135,6 +140,9 @@ class OlfCellApp(BaseKivyApp):
             dev.stop()
         for dev in self.mfcs[:]:
             dev.stop()
+
+        if self.rpi_pins is not None:
+            self.rpi_pins.stop()
 
         self.stage.stop()
 

@@ -4,6 +4,7 @@ from time import perf_counter_ns, sleep
 import re
 from threading import Lock
 import serial
+from gpiozero import OutputDevice
 from serial.rs485 import RS485Settings
 
 from kivy.properties import ObjectProperty
@@ -452,3 +453,101 @@ class VirtualMFC(MFCBase):
         sleep(.1)
         state = max(self.state + random() * .01 - .005, 0)
         return state, self.get_time()
+
+
+class RPIPinOutBase(DigitalPort, DeviceContext):
+
+    _config_props_ = ('tone_pin', 'current_pin')
+
+    tone_pin: int = 0
+
+    current_pin: int = 0
+
+    tone: bool = False
+
+    current: bool = False
+
+    channel_names: List[str] = [
+        "tone", "current"
+    ]
+
+    def __init__(
+            self, tone_pin: int = 0, current_pin: int = 0, **kwargs
+    ):
+        self.tone_pin = tone_pin
+        self.current_pin = current_pin
+        super().__init__(**kwargs)
+
+    def update_write_data(self, result):
+        self.local_time = self.get_time()
+        (high, low), t = result
+
+        self.timestamp = t
+        for name in high:
+            setattr(self, name, True)
+        for name in low:
+            setattr(self, name, False)
+
+        self.dispatch('on_data_update', self)
+
+    def write_states(
+            self, high: Iterable[str] = (), low: Iterable[str] = (),
+            **kwargs: bool):
+        raise NotImplementedError
+
+
+class RPIPinOut(RPIPinOutBase):
+
+    tone_device: OutputDevice | None = None
+
+    current_device: OutputDevice | None = None
+
+    @apply_executor
+    def open_device(self):
+        self.tone_device = OutputDevice(
+            pin=self.tone_pin, active_high=True, initial_value=False
+        )
+        self.current_device = OutputDevice(
+            pin=self.current_pin, active_high=True, initial_value=False
+        )
+
+    @apply_executor
+    def close_device(self):
+        if self.tone_device is not None:
+            self.tone_device.close()
+            self.tone_device = None
+        if self.current_device is not None:
+            self.current_device.close()
+            self.current_device = None
+
+    @apply_executor(callback='update_write_data')
+    def write_states(
+            self, high: Iterable[str] = (), low: Iterable[str] = (),
+            **kwargs: bool):
+        device: OutputDevice
+        for name in high:
+            device = getattr(self, f"{name}_device")
+            device.on()
+        for name in low:
+            device = getattr(self, f"{name}_device")
+            device.off()
+
+        return (high, low), self.get_time()
+
+
+class VirtualRPIPinOut(RPIPinOutBase):
+
+    @apply_executor
+    def open_device(self):
+        pass
+
+    @apply_executor
+    def close_device(self):
+        pass
+
+    @apply_executor(callback='update_write_data')
+    def write_states(
+            self, high: Iterable[str] = (), low: Iterable[str] = (),
+            **kwargs: bool):
+        sleep(.05)
+        return (high, low), self.get_time()
