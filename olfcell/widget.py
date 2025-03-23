@@ -1,4 +1,5 @@
 import csv
+import re
 from pathlib import Path
 from threading import Thread
 import trio
@@ -545,6 +546,7 @@ class ExperimentStages(EventDispatcher):
 
         self.playing = False
 
+    @app_error
     def load_protocols(self) -> None:
         """Called by the GUI when user browses for a file.
         """
@@ -562,6 +564,7 @@ class ExperimentStages(EventDispatcher):
     def _load_protocol(
             self, filename: Path
     ) -> tuple[list[ProtocolItem], tuple[list[str], list[str]]]:
+        repeat_pat = re.compile("<([0-9]+)(/)?>")
         data = filename.read_text(encoding='utf-8-sig')
 
         reader = csv.reader(data.splitlines())
@@ -570,10 +573,12 @@ class ExperimentStages(EventDispatcher):
             raise ValueError(
                 'The csv file must have at least a duration column')
 
-        if header[0].lower() != 'duration':
+        if header[0].lower() != 'repeat':
+            raise ValueError('First column must be named duration')
+        if header[1].lower() != 'duration':
             raise ValueError('First column must be named duration')
 
-        i = valve_s = 1
+        i = valve_s = 2
         while i < len(header) and header[i].lower().startswith('valve_'):
             i += 1
         mfc_s = valve_e = i
@@ -592,8 +597,10 @@ class ExperimentStages(EventDispatcher):
         mfc_names = [header[k][4:] for k in range(mfc_s, mfc_e)]
 
         protocol = []
+        groups = []
         for row in reader:
-            dur = float(row[0])
+            repeat = row[0]
+            dur = float(row[1])
             valves = [
                 bool(int(row[k])) if row[k] else None
                 for k in range(valve_s, valve_e)
@@ -605,6 +612,29 @@ class ExperimentStages(EventDispatcher):
             record = bool(int(row[record_i])) if row[record_i] else None
 
             protocol.append((dur, valves, mfcs, tone, current, record))
+            if repeat == "</>":
+                if not groups:
+                    raise ValueError("Got repeat-end without start in protocol")
+
+                start, n = groups.pop()
+                items = protocol[start:]
+                for _ in range(n - 1):
+                    protocol.extend(items)
+            elif repeat:
+                m = re.match(repeat_pat, repeat)
+                if m is None:
+                    raise ValueError(f"Expected <n> or <n/> in the repeat column. Got {repeat}")
+
+                n, slash = m.groups()
+                start = len(protocol) - 1
+                n = int(n)
+
+                if slash:
+                    for _ in range(n - 1):
+                        protocol.append(protocol[start])
+                else:
+                    groups.append((start, n))
+
 
         return protocol, (valve_names, mfc_names)
 
