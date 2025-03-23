@@ -56,18 +56,19 @@ Software installation
 Install the dependencies with
 
 ```
-sudo apt install python3 python3-dev python3-pip
-python3 -m pip install --upgrade pip virtualenv
+sudo apt install python3 python3-dev python3-pip python3-virtualenv
 cd Desktop
-python3 -m virtualenv venv
-cd venv/
-source bin/activate
+python3 -m virtualenv olfcell_venv
+source olfcell_venv/bin/activate
 
+pip install https://github.com/matham/more-kivy-app/archive/master.zip --timeout=1000
+pip install https://github.com/matham/base_kivy_app/archive/master.zip --timeout=1000
+pip install https://github.com/matham/kivy-trio/archive/master.zip --timeout=1000
 git clone https://github.com/matham/pymoa-remote.git
-pip install -e pymoa-remote/[network]
-pip install https://github.com/matham/kivy-trio/archive/master.zip
-git clone https://github.com/matham/pymoa.git
-pip install -e pymoa/
+pip install -e pymoa-remote/ --timeout=1000
+pip install https://github.com/matham/pymoa/archive/master.zip --timeout=1000
+git clone https://github.com/matham/olfcell.git
+pip install -e olfcell/ --timeout=1000
 ```
 
 Finally start the server with `KIVY_NO_ARGS=1 pymoa_quart_app --port port --host "ip"`.
@@ -169,36 +170,55 @@ Stratuscent sensors
 
 https://community.silabs.com/s/article/cp210x-legacy-programming-utilities?language=en_US
 https://inegm.medium.com/persistent-names-for-usb-serial-devices-in-linux-dev-ttyusbx-dev-custom-name-fd49b5db9af1
-ls /dev/
-sudo nano /etc/udev/rules.d/99-usb-serial.rules
-sudo udevadm control --reload-rules && sudo udevadm trigger
-SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{serial}=="10023B", SYMLINK+="SScent10023B"
 
+Do::
+
+    ls /dev/
+    sudo nano /etc/udev/rules.d/99-usb-serial.rules
+    sudo udevadm control --reload-rules && sudo udevadm trigger
+    SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{serial}=="10023B", SYMLINK+="SScent10023B"
 
 Connecting MOD-IO:
 -------------------
 
+If having issues with the load disconnecting the device, `see this forum <https://www.olimex.com/forum/index.php?topic=5178.0>`_
+
 UART:
 
-sudo raspi-config - Expand filesystem and enable serial on advanced page, exit and reboot.
-sudo nano /boot/config.txt - add `dtoverlay=pi3-disable-bt`
-sudo nano /boot/cmdline.txt - remove  "console=serial0,115200" or (ttyAMA0)
-reboot
+If using the `UART firmware for the device <https://github.com/matham/uart_mod_io>`_, do the following
+
+* Run::
+
+      sudo raspi-config
+
+  And expand filesystem and enable serial on advanced page, exit and reboot.
+* Do::
+
+      sudo nano /boot/firmware/config.txt
+
+  And add ``dtoverlay=pi3-disable-bt``.
+* Do::
+
+      sudo nano /boot/firmware/cmdline.txt
+
+  and remove  ``console=serial0,115200`` or (``ttyAMA0``).
+* reboot
 
 
 I2C:
+
+If using ``I2C``
 desolder R15 and R17
 
-https://www.abelectronics.co.uk/kb/article/1/i2c-part-2---enabling-i-c-on-the-raspberry-pi
+Follow `this blog to set up <https://www.abelectronics.co.uk/kb/article/1/i2c-part-2---enabling-i-c-on-the-raspberry-pi>`_
 
-Enable I2C using `sudo raspi-config`, option 5 and enable it.
-Then do
-```sh
-sudo apt install i2c-tools
-// list all devices
-sudo i2cdetect -y 1
-pip install smbus2
-```
+Enable I2C using ``sudo raspi-config``, option 5 and enable it.
+Then do::
+
+    sudo apt install i2c-tools
+    // list all devices
+    sudo i2cdetect -y 1
+    pip install smbus2
 
 It communicates over I2C and boards can be connected sequentially, but they need to be powered independently.
 Barrel connector power should be 8V-30V DC.
@@ -207,7 +227,7 @@ Blue triplet is opto-isolated analog output relay (5A/250VAC).
 Green is 4 analog inputs (0 - 3.3V).
 UEXT is connected to I2C pins of RPi: connect ground, scl to scl and sda to sda.
 Connect them in series, they each need power.
-Update the address from default 0x58 to e.g. 0x22 using `i2cset -y -f 2 0x58 0xF0 0x22`.
+Update the address from default 0x58 to e.g. 0x22 using ``i2cset -y -f 2 0x58 0xF0 0x22``.
 
 
 ADC
@@ -229,11 +249,13 @@ git clone https://github.com/ul-gh/PiPyADC.git
 MFC
 ---
 
+Uses the ``Waveshare 2-CH RS485 HAT``
+
 Keep 120R
 leave default switches, full-auto
 
-# In /boot/config.txt:
-sudo nano /boot/config.txt
+# In /boot/firmware/config.txt:
+sudo nano /boot/firmware/config.txt
 # Add the following, int_pin is set according to the actual welding mode(BCM coding):
 dtoverlay=sc16is752-spi1,int_pin=24
 

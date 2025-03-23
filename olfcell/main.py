@@ -2,18 +2,18 @@ from os.path import join, dirname
 from pathlib import Path
 import trio
 from base_kivy_app.app import BaseKivyApp, run_app_async as run_app_async_base
-from base_kivy_app.graphics import HighightButtonBehavior
+from base_kivy_app.graphics import HighightButtonBehavior, BufferImage
+import logging
 
 from kivy.lang import Builder
 from kivy.factory import Factory
 from kivy.properties import ObjectProperty, StringProperty, BooleanProperty, \
     NumericProperty
 from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.behaviors.focus import FocusBehavior
 
 import olfcell
 from olfcell.widget import (
-    ValveBoardWidget, MFCWidget, RPIPinWidget, ExperimentStages
+    ValveBoardWidget, MFCWidget, RPIPinWidget, VideoPlayer, ExperimentStages
 )
 
 __all__ = ('OlfCellApp', 'run_app')
@@ -36,7 +36,7 @@ class OlfCellApp(BaseKivyApp):
 
     _config_children_ = {
         'valve_boards': 'valve_boards', 'mfcs': 'mfcs',
-        'rpi_pins': 'rpi_pins', 'stage': 'stage'
+        'rpi_pins': 'rpi_pins', 'stage': 'stage', 'player': 'player',
     }
 
     last_directory = StringProperty('~')
@@ -68,13 +68,20 @@ class OlfCellApp(BaseKivyApp):
 
     rpi_pins: RPIPinWidget = None
 
+    player: VideoPlayer = None
+
     stage: ExperimentStages = ObjectProperty(None)
+
+    central_display: BufferImage = ObjectProperty(None, rebind=True)
+    """The :class:`~base_kivy_app.graphics.BufferImage` widget into which the
+    camera widget is drawn.
+    """
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.valve_boards = []
         self.mfcs = []
-
+        self.player = VideoPlayer(app=self)
         self.stage = ExperimentStages(
             app=self,
             stage_directory=Path(__file__).parent / "data" / "experiments",
@@ -100,6 +107,7 @@ class OlfCellApp(BaseKivyApp):
     def build(self):
         self.load_app_kv()
         self.yesno_prompt = Factory.FlatYesNoPrompt()
+        self.player.create_widgets()
 
         root = MainView()
         return super().build(root)
@@ -112,6 +120,8 @@ class OlfCellApp(BaseKivyApp):
         self.apply_app_settings()
 
         self.stage.load_protocols()
+
+        logging.root.setLevel(logging.INFO)
 
     def apply_config_property(self, name, value):
         setattr(self, name, value)
@@ -144,6 +154,7 @@ class OlfCellApp(BaseKivyApp):
         if self.rpi_pins is not None:
             self.rpi_pins.stop()
 
+        self.player.clean_up()
         self.stage.stop()
 
     def _update_num_io(

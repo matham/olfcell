@@ -20,8 +20,8 @@ setup(
                  ],
     packages=find_packages(),
     install_requires=[
-        'base_kivy_app', 'kivy', 'pyserial',
-        'trio', 'pymoa-remote', 'pymoa',
+        'base_kivy_app', 'kivy', 'pyserial', 'psutil',
+        'trio', 'pymoa-remote', 'pymoa', 'cpl_media',
         'tree-config', 'kivy_trio', 'smbus2', 'gpiozero'],
     extras_require={
         'dev': [

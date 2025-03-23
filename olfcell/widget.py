@@ -3,7 +3,10 @@ from pathlib import Path
 from threading import Thread
 import trio
 from math import ceil
+from functools import partial
 import pathlib
+import psutil
+from os.path import exists, isdir, dirname
 from time import perf_counter, sleep
 import os.path
 from typing import List, Dict, Optional, Tuple, Iterable
@@ -14,7 +17,8 @@ from pymoa_remote.socket.websocket_client import WebSocketExecutor
 from pymoa_remote.client import Executor
 from base_kivy_app.app import app_error
 from base_kivy_app.utils import pretty_time, yaml_dumps
-from tree_config import read_config_from_object
+from cpl_media.ffmpeg import FFmpegPlayer, FFmpegSettingsWidget
+from cpl_media.recorder import VideoRecorder, VideoRecordSettingsWidget
 
 from kivy.properties import ObjectProperty, StringProperty, BooleanProperty, \
     NumericProperty, ListProperty
@@ -35,13 +39,25 @@ __all__ = ('ValveBoardWidget', 'MFCWidget', 'ExperimentStages')
 
 
 ProtocolItem = tuple[
-    float, list[bool | None], list[float | None], bool | None, bool | None
+    float, list[bool | None], list[float | None], bool | None, bool | None,
+    bool | None,
 ]
 FlatProtocolItem = tuple[
     float, list[tuple['ValveBoardWidget', dict[str, bool]]],
     list[tuple['MFCWidget', float]],
     tuple['RPIPinWidget', list[str], list[str]] | None,
+    tuple['VideoPlayer', bool] | None,
 ]
+
+
+def value_changed(key, value, container: dict) -> bool:
+    if key not in container:
+        container[key] = value
+        return True
+
+    changed = container[key] != value
+    container[key] = value
+    return changed
 
 
 class ExecuteDevice:
@@ -258,6 +274,84 @@ class RPIPinWidget(BoxLayout, ExecuteDevice):
         self._event_queue.add_item(high, low)
 
 
+class VideoPlayer(EventDispatcher):
+
+    _config_children_ = {
+        'ffmpeg': 'ffmpeg_player',
+        'video_recorder': 'video_recorder',
+    }
+
+    ffmpeg_player: FFmpegPlayer = None
+
+    ffmpeg_settings: FFmpegSettingsWidget = None
+
+    video_recorder: VideoRecorder = None
+
+    video_recorder_settings: VideoRecordSettingsWidget = None
+
+    last_image = ObjectProperty(None, allownone=True)
+
+    disk_used_percent = NumericProperty(0)
+
+    _app = None
+
+    def __init__(self, app, **kwargs):
+        super().__init__(**kwargs)
+        self._app = app
+
+        self.ffmpeg_player = FFmpegPlayer()
+        self.video_recorder = VideoRecorder()
+
+        self.ffmpeg_player.display_frame = self.display_frame
+
+        Clock.schedule_interval(self.update_disk_usage, 0.1)
+
+    def create_widgets(self):
+        self.ffmpeg_settings = FFmpegSettingsWidget(player=self.ffmpeg_player)
+        self.video_recorder_settings = VideoRecordSettingsWidget(
+            recorder=self.video_recorder)
+
+    def display_frame(self, image, metadata=None):
+        """The displays the image to the user and adds it to :attr:`last_image`.
+        """
+        from olfcell.main import OlfCellApp
+        app: OlfCellApp = self._app
+        widget = app.central_display
+        if widget is not None:
+            widget.update_img(image)
+            self.last_image = image
+
+    def update_disk_usage(self, *largs):
+        p = self.video_recorder.record_directory
+        p = 'C:\\' if not exists(p) else (p if isdir(p) else dirname(p))
+        if not exists(p):
+            p = '/home'
+        self.disk_used_percent = round(psutil.disk_usage(p).percent) / 100.
+
+    @app_error
+    def start(self):
+        self.ffmpeg_player.play()
+
+    @app_error
+    def stop(self):
+        for player in (self.video_recorder, self.ffmpeg_player):
+            if player is not None:
+                player.stop()
+
+    @app_error
+    def start_recording(self):
+        self.video_recorder.record(self.ffmpeg_player)
+
+    @app_error
+    def stop_recording(self):
+        self.video_recorder.stop()
+
+    def clean_up(self):
+        for player in (self.ffmpeg_player, self.video_recorder):
+            if player is not None:
+                player.stop_all(join=True)
+
+
 class ExperimentStages(EventDispatcher):
 
     playing: bool = BooleanProperty(False)
@@ -308,6 +402,8 @@ class ExperimentStages(EventDispatcher):
         ts = 0
         self.stage_i = 0
 
+        state_changed = partial(value_changed, container={})
+
         def protocol_callback(*args):
             nonlocal i, rem_time, ts, n
 
@@ -323,16 +419,26 @@ class ExperimentStages(EventDispatcher):
             # update only if not stopping
             self.stage_i = i + 1
 
-            dur, valves, mfcs, pins = protocol[i]
+            dur, valves, mfcs, pins, do_record = protocol[i]
 
             rem_time += dur
             for board, values in valves:
-                board.set_valves(**values)
+                if state_changed(board, values):
+                    board.set_valves(**values)
             for board, value in mfcs:
-                board.set_value(value)
+                if state_changed(board, value):
+                    board.set_value(value)
             if pins is not None:
                 widget, high, low = pins
-                widget.set_pins(high=high, low=low)
+                if state_changed(widget, (high, low)):
+                    widget.set_pins(high=high, low=low)
+            if do_record is not None:
+                widget, record = do_record
+                if state_changed(widget, record):
+                    if record:
+                        widget.start_recording()
+                    else:
+                        widget.stop_recording()
 
             self._total_stage_time = rem_time
 
@@ -353,9 +459,11 @@ class ExperimentStages(EventDispatcher):
         valves: List[ValveBoardWidget] = app.valve_boards
         mfcs: List[MFCWidget] = app.mfcs
         rpi_pins: RPIPinWidget = app.rpi_pins
+        player: VideoPlayer = app.player
 
         stages = []
-        for dur, valve_states, mfc_vals, tone_val, current_val in protocol:
+        for (dur, valve_states, mfc_vals, tone_val, current_val,
+             record_val) in protocol:
             valve_groups = [
                 valve_states[i * 4: (i + 1) * 4]
                 for i in range(int(ceil(len(valve_states) / 4)))
@@ -391,7 +499,11 @@ class ExperimentStages(EventDispatcher):
                     (high if current_val else low).append("current")
                 prepped_pins = rpi_pins, high, low
 
-            stages.append((dur, prepped_valves, prepped_mfcs, prepped_pins))
+            prepped_record = None
+            if record_val is not None:
+                prepped_record = player, record_val
+
+            stages.append((dur, prepped_valves, prepped_mfcs, prepped_pins, prepped_record))
 
         return stages
 
@@ -406,6 +518,10 @@ class ExperimentStages(EventDispatcher):
             for dev in app.valve_boards + app.mfcs:
                 if not dev.is_running:
                     raise TypeError('Not all valves/MFCs have been started')
+            if app.player.ffmpeg_player.play_state != "playing":
+                raise TypeError("Video is not playing")
+            if app.player.video_recorder.record_state != "none":
+                raise TypeError("Video recorder is already recording")
 
             if key not in self.protocols:
                 raise ValueError('Protocol not available')
@@ -466,11 +582,11 @@ class ExperimentStages(EventDispatcher):
         mfc_e = i
         tone_i = header.index("tone", mfc_e)
         current_i = header.index("current", mfc_e)
+        record_i = header.index("record", mfc_e)
 
-        if i + 2 != len(header):
+        if i + 3 != len(header):
             raise ValueError(
-                f'Reached column "{header[i]}" that does not start with valve_ '
-                f'or mfc_')
+                f'Too many columns')
 
         valve_names = [header[k][6:] for k in range(valve_s, valve_e)]
         mfc_names = [header[k][4:] for k in range(mfc_s, mfc_e)]
@@ -486,8 +602,9 @@ class ExperimentStages(EventDispatcher):
                 float(row[k]) if row[k] else None for k in range(mfc_s, mfc_e)]
             tone = bool(int(row[tone_i])) if row[tone_i] else None
             current = bool(int(row[current_i])) if row[current_i] else None
+            record = bool(int(row[record_i])) if row[record_i] else None
 
-            protocol.append((dur, valves, mfcs, tone, current))
+            protocol.append((dur, valves, mfcs, tone, current, record))
 
         return protocol, (valve_names, mfc_names)
 
