@@ -1,18 +1,18 @@
 inspect: false
 last_directory: '~'
 mfcs:
-- com_port: ''
-  dev_address: 0
-  remote_port: 0
-  remote_server: ''
-  unique_dev_id: ''
-  virtual: true
-- com_port: ''
-  dev_address: 0
-  remote_port: 0
-  remote_server: ''
-  unique_dev_id: ''
-  virtual: true
+- com_port: /dev/ttySC1
+  dev_address: 23
+  remote_port: 5008
+  remote_server: rasppi03wifi.cplab.cornell.edu
+  unique_dev_id: '2'
+  virtual: false
+- com_port: /dev/ttySC0
+  dev_address: 37
+  remote_port: 5008
+  remote_server: rasppi03wifi.cplab.cornell.edu
+  unique_dev_id: '3'
+  virtual: false
 n_mfc: 2
 n_valve_boards: 2
 player:
@@ -42,30 +42,30 @@ player:
     - 0
     - 0
     - 0
-    record_directory: C:\
+    record_directory: ''
     record_fname: video{}.mkv
-    record_fname_count: 0
+    record_fname_count: 2
     requested_record_duration: 0
 rpi_pins:
-  current_pin: 0
-  remote_port: 0
-  remote_server: ''
+  current_pin: 12
+  remote_port: 5008
+  remote_server: rasppi03wifi.cplab.cornell.edu
   tone_pin: 0
-  unique_dev_id: ''
-  virtual: true
+  unique_dev_id: '4'
+  virtual: false
 stage: {}
 valve_boards:
-- com_port: ''
-  dev_address: 0
-  remote_port: 0
-  remote_server: ''
-  reverse_relay: false
-  unique_dev_id: ''
-  virtual: true
-- com_port: ''
-  dev_address: 0
-  remote_port: 0
-  remote_server: ''
-  reverse_relay: false
-  unique_dev_id: ''
-  virtual: true
+- com_port: /dev/serial0
+  dev_address: 96
+  remote_port: 5008
+  remote_server: rasppi03wifi.cplab.cornell.edu
+  reverse_relay: true
+  unique_dev_id: '0'
+  virtual: false
+- com_port: /dev/serial0
+  dev_address: 97
+  remote_port: 5008
+  remote_server: rasppi03wifi.cplab.cornell.edu
+  reverse_relay: true
+  unique_dev_id: '1'
+  virtual: false

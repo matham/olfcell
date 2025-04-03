@@ -69,6 +69,7 @@ pip install -e pymoa-remote/ --timeout=1000
 pip install https://github.com/matham/pymoa/archive/master.zip --timeout=1000
 git clone https://github.com/matham/olfcell.git
 pip install -e olfcell/ --timeout=1000
+pip install RPi.GPIO
 ```
 
 Finally start the server with `KIVY_NO_ARGS=1 pymoa_quart_app --port port --host "ip"`.

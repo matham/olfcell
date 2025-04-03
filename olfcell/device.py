@@ -7,9 +7,6 @@ import serial
 from gpiozero import OutputDevice
 from serial.rs485 import RS485Settings
 
-from kivy.properties import ObjectProperty
-
-from pymoa.device import Device
 from pymoa.device.digital import DigitalPort
 from pymoa.device.analog import AnalogChannel
 from pymoa_remote.client import apply_executor, apply_generator_executor
