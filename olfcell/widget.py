@@ -1,34 +1,28 @@
 import csv
 import re
 from pathlib import Path
-from threading import Thread
 import trio
 from math import ceil
+import random
 from functools import partial
-import pathlib
 import psutil
 from os.path import exists, isdir, dirname
-from time import perf_counter, sleep
-import os.path
-from typing import List, Dict, Optional, Tuple, Iterable
+from time import perf_counter
+from typing import List, Optional, Iterable
 from kivy_trio.to_trio import kivy_run_in_async, mark, KivyEventCancelled
 from kivy_trio.to_kivy import AsyncKivyEventQueue
 from pymoa_remote.threading import ThreadExecutor
 from pymoa_remote.socket.websocket_client import WebSocketExecutor
 from pymoa_remote.client import Executor
 from base_kivy_app.app import app_error
-from base_kivy_app.utils import pretty_time, yaml_dumps
+from base_kivy_app.utils import pretty_time
 from cpl_media.ffmpeg import FFmpegPlayer, FFmpegSettingsWidget
 from cpl_media.recorder import VideoRecorder, VideoRecordSettingsWidget
 
 from kivy.properties import ObjectProperty, StringProperty, BooleanProperty, \
     NumericProperty, ListProperty
 from kivy.uix.boxlayout import BoxLayout
-from kivy.clock import Clock
-from kivy.core.audio import SoundLoader
-from kivy.graphics.texture import Texture
-from kivy.factory import Factory
-from kivy.uix.widget import Widget
+from kivy.clock import Clock, ClockEvent
 from kivy.event import EventDispatcher
 
 from olfcell.device import (
@@ -40,7 +34,7 @@ __all__ = ('ValveBoardWidget', 'MFCWidget', 'ExperimentStages')
 
 
 ProtocolItem = tuple[
-    float, list[bool | None], list[float | None], bool | None, bool | None,
+    float, list[bool | None], list[float | None], bool | None,
     bool | None,
 ]
 FlatProtocolItem = tuple[
@@ -224,9 +218,7 @@ class MFCWidget(BoxLayout, ExecuteDevice):
 
 class RPIPinWidget(BoxLayout, ExecuteDevice):
 
-    _config_props_ = ('tone_pin', 'current_pin')
-
-    tone_pin: int = NumericProperty(0)
+    _config_props_ = ('current_pin',)
 
     current_pin: int = NumericProperty(0)
 
@@ -251,7 +243,7 @@ class RPIPinWidget(BoxLayout, ExecuteDevice):
 
         self.is_running = True
         self.device = cls(
-            tone_pin=self.tone_pin, current_pin=self.current_pin
+            current_pin=self.current_pin
         )
         self.device.fbind('on_data_update', self.dispatch, 'on_data_update')
         self._event_queue = AsyncKivyEventQueue()
@@ -355,6 +347,14 @@ class VideoPlayer(EventDispatcher):
 
 class ExperimentStages(EventDispatcher):
 
+    _config_props_ = ('random_valve_port', 'random_valve_delay_range', 'random_valve_on_time')
+
+    random_valve_port: int | None = NumericProperty(None, allownone=True)
+
+    random_valve_delay_range: tuple[float, float] = 0, 0
+
+    random_valve_on_time: float = NumericProperty(0)
+
     playing: bool = BooleanProperty(False)
 
     protocols_name: list[str] = ListProperty()
@@ -387,11 +387,59 @@ class ExperimentStages(EventDispatcher):
 
     _col_names: tuple[list[str], list[str]] = ([], [])
 
+    _rand_valve_event: ClockEvent | None = None
+
+    _rand_valve_dev: ValveBoardWidget | None = None
+
+    _rand_valve_name: str = ''
+
+    _rand_valve_state: bool = False
+
     def __init__(self, app, stage_directory: Path, **kwargs):
         super().__init__(**kwargs)
         self._app = app
         self.stage_directory = stage_directory
         self.protocols = {}
+
+    @app_error
+    def start_random_valve(self):
+        s, e = self.random_valve_delay_range
+        if self.random_valve_port is None or s == e and s == 0 or not self.random_valve_on_time:
+            raise ValueError("No valve port or valid random interval provided")
+
+        valves: List[ValveBoardWidget] = self._app.valve_boards
+        self._rand_valve_dev = valves[self.random_valve_port // 4]
+        self._rand_valve_name = f"relay_{self.random_valve_port % 4}"
+        self._rand_valve_state = False
+
+        val = random.random() * (e - s) + s
+        self._rand_valve_event = Clock.schedule_once(self._rand_valve_callback, val)
+
+    def stop_random_valve(self):
+        if self._rand_valve_event is not None:
+            self._rand_valve_event.cancel()
+            self._rand_valve_event = None
+
+        if self._rand_valve_dev is not None:
+            self._rand_valve_dev.set_valves(low=(self._rand_valve_name,))
+
+    def _rand_valve_callback(self, *args):
+        if self._rand_valve_event is None:
+            return
+
+        if self._rand_valve_state:
+            s, e = self.random_valve_delay_range
+            val = random.random() * (e - s) + s
+        else:
+            val = self.random_valve_on_time
+        self._rand_valve_event = Clock.schedule_once(self._rand_valve_callback, val)
+
+        self._rand_valve_state = not self._rand_valve_state
+        if self._rand_valve_dev is not None:
+            if self._rand_valve_state:
+                self._rand_valve_dev.set_valves(high=(self._rand_valve_name,))
+            else:
+                self._rand_valve_dev.set_valves(low=(self._rand_valve_name,))
 
     def _run_protocol(
             self, protocol: List[FlatProtocolItem]):
@@ -463,7 +511,7 @@ class ExperimentStages(EventDispatcher):
         player: VideoPlayer = app.player
 
         stages = []
-        for (dur, valve_states, mfc_vals, tone_val, current_val,
+        for (dur, valve_states, mfc_vals, current_val,
              record_val) in protocol:
             valve_groups = [
                 valve_states[i * 4: (i + 1) * 4]
@@ -491,11 +539,9 @@ class ExperimentStages(EventDispatcher):
             ]
 
             prepped_pins = None
-            if tone_val is not None and current_val is not None:
+            if current_val is not None:
                 high = []
                 low = []
-                if tone_val is not None:
-                    (high if tone_val else low).append("tone")
                 if current_val is not None:
                     (high if current_val else low).append("current")
                 prepped_pins = rpi_pins, high, low
@@ -579,17 +625,16 @@ class ExperimentStages(EventDispatcher):
             raise ValueError('First column must be named duration')
 
         i = valve_s = 2
-        while i < len(header) and header[i].lower().startswith('valve_'):
+        while i < len(header) and header[i].lower().startswith('relay_'):
             i += 1
         mfc_s = valve_e = i
         while i < len(header) and header[i].lower().startswith('mfc_'):
             i += 1
         mfc_e = i
-        tone_i = header.index("tone", mfc_e)
         current_i = header.index("current", mfc_e)
         record_i = header.index("record", mfc_e)
 
-        if i + 3 != len(header):
+        if i + 2 != len(header):
             raise ValueError(
                 f'Too many columns')
 
@@ -607,11 +652,10 @@ class ExperimentStages(EventDispatcher):
             ]
             mfcs = [
                 float(row[k]) if row[k] else None for k in range(mfc_s, mfc_e)]
-            tone = bool(int(row[tone_i])) if row[tone_i] else None
             current = bool(int(row[current_i])) if row[current_i] else None
             record = bool(int(row[record_i])) if row[record_i] else None
 
-            protocol.append((dur, valves, mfcs, tone, current, record))
+            protocol.append((dur, valves, mfcs, current, record))
             if repeat == "</>":
                 if not groups:
                     raise ValueError("Got repeat-end without start in protocol")

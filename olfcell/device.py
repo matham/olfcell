@@ -454,24 +454,19 @@ class VirtualMFC(MFCBase):
 
 class RPIPinOutBase(DigitalPort, DeviceContext):
 
-    _config_props_ = ('tone_pin', 'current_pin')
-
-    tone_pin: int = 0
+    _config_props_ = ('current_pin', )
 
     current_pin: int = 0
-
-    tone: bool = False
 
     current: bool = False
 
     channel_names: List[str] = [
-        "tone", "current"
+        "current",
     ]
 
     def __init__(
-            self, tone_pin: int = 0, current_pin: int = 0, **kwargs
+            self, current_pin: int = 0, **kwargs
     ):
-        self.tone_pin = tone_pin
         self.current_pin = current_pin
         super().__init__(**kwargs)
 
@@ -495,24 +490,16 @@ class RPIPinOutBase(DigitalPort, DeviceContext):
 
 class RPIPinOut(RPIPinOutBase):
 
-    tone_device: OutputDevice | None = None
-
     current_device: OutputDevice | None = None
 
     @apply_executor
     def open_device(self):
-        self.tone_device = OutputDevice(
-            pin=self.tone_pin, active_high=True, initial_value=False
-        )
         self.current_device = OutputDevice(
             pin=self.current_pin, active_high=True, initial_value=False
         )
 
     @apply_executor
     def close_device(self):
-        if self.tone_device is not None:
-            self.tone_device.close()
-            self.tone_device = None
         if self.current_device is not None:
             self.current_device.close()
             self.current_device = None

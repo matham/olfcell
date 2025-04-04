@@ -182,6 +182,14 @@
                 on_kv_post: app._valve_container = self.__self__
                 spacing: '10dp'
                 size_hint_min_x: self.minimum_width
+            LightThemedToggleButton:
+                disabled: not app.valves_running or app.stage.random_valve_port is None or not app.stage.random_valve_on_time
+                text: 'Valve noise'
+                size_hint_x: None
+                width: self.texture_size[0]
+                padding_x: '10dp'
+                on_state: app.stage.start_random_valve() if self.state == 'down' else app.stage.stop_random_valve()
+                hover_text: 'Randomly click valve'
             FlatDivider:
                 size_hint_y: None
                 height: '24dp'
@@ -461,7 +469,6 @@
     size_hint: None, None
     size: self.minimum_width, '25dp'
     on_data_update:
-        tone.state = 'down' if self.device.tone else 'normal'
         current.state = 'down' if self.device.current else 'normal'
     FlatImageToggleButton:
         id: play
@@ -475,12 +482,6 @@
         spacing: '3dp'
         size_hint_x: None
         width: self.minimum_width
-        FlatImageToggleButton:
-            id: tone
-            source: 'radiobox-blank.png' if self.state == 'normal' else 'radiobox-marked.png'
-            flat_color: app.theme.accent
-            on_release: root.set_pins(high=("tone",)) if self.state == 'down' else root.set_pins(low=("tone",))
-            hover_text: 'Tone'
         FlatImageToggleButton:
             id: current
             source: 'radiobox-blank.png' if self.state == 'normal' else 'radiobox-marked.png'
@@ -517,17 +518,6 @@
                     padding_x: '10dp'
                     on_state: root.virtual = self.state == 'down'
                     hover_text: 'Device is virtual/real'
-                ThemedLabel:
-                    size_hint: None, None
-                    size: self.texture_size[0], '24dp'
-                    text: 'Tone pin #:'
-                FlatSizedTextInput:
-                    background_color: app.theme.primary_text
-                    size_hint_min_x: '100dp'
-                    text: str(root.tone_pin)
-                    on_text: root.tone_pin = int(self.text or 0)
-                    hint_text: 'tone pin'
-                    input_filter: 'int'
                 ThemedLabel:
                     size_hint: None, None
                     size: self.texture_size[0], '24dp'

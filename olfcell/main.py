@@ -60,6 +60,8 @@ class OlfCellApp(BaseKivyApp):
 
     valve_boards: list[ValveBoardWidget] = []
 
+    valves_running: bool = BooleanProperty(False)
+
     _mfc_container = None
 
     n_mfc: int = NumericProperty(1)
@@ -89,10 +91,13 @@ class OlfCellApp(BaseKivyApp):
 
         self.fbind(
             'n_valve_boards', self._update_num_io, 'valve_boards',
-            'n_valve_boards', '_valve_container', ValveBoardWidget)
+            'n_valve_boards', '_valve_container', ValveBoardWidget,
+            self._track_valves_running
+        )
         self.fbind(
             'n_mfc', self._update_num_io, 'mfcs', 'n_mfc',
-            '_mfc_container', MFCWidget)
+            '_mfc_container', MFCWidget, None,
+        )
 
     def load_app_kv(self):
         """Loads the app's kv files, if not yet loaded.
@@ -157,9 +162,16 @@ class OlfCellApp(BaseKivyApp):
         self.player.clean_up()
         self.stage.stop()
 
+    def _track_valves_running(self, *args):
+        was_running = self.valves_running
+        running = True
+        for dev in self.valve_boards:
+            running = running and dev.is_running
+        self.valves_running = running
+
     def _update_num_io(
             self, widgets_name, n_items_name, widgets_container_name,
-            widget_cls, *args):
+            widget_cls, callback, *args):
         n_items = getattr(self, n_items_name)
         widgets = getattr(self, widgets_name)
         widgets_container = getattr(self, widgets_container_name)
@@ -170,11 +182,15 @@ class OlfCellApp(BaseKivyApp):
 
                 widgets_container.remove_widget(dev)
                 widgets.remove(dev)
+                dev.funbind("is_running", callback)
         else:
             for _ in range(n_items - len(widgets)):
                 dev = widget_cls()
                 widgets_container.add_widget(dev)
                 widgets.append(dev)
+
+                if callback is not None:
+                    dev.fbind("is_running", callback)
 
 
 def run_app():

@@ -50,10 +50,14 @@ rpi_pins:
   current_pin: 12
   remote_port: 5008
   remote_server: rasppi03wifi.cplab.cornell.edu
-  tone_pin: 0
   unique_dev_id: '4'
   virtual: false
-stage: {}
+stage:
+  random_valve_delay_range:
+  - 2
+  - 10
+  random_valve_on_time: 2
+  random_valve_port: null
 valve_boards:
 - com_port: /dev/serial0
   dev_address: 96
