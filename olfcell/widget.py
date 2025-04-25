@@ -38,7 +38,8 @@ ProtocolItem = tuple[
     bool | None,
 ]
 FlatProtocolItem = tuple[
-    float, list[tuple['ValveBoardWidget', dict[str, bool]]],
+    float,
+    list[tuple['ValveBoardWidget', dict[str, bool]]],
     list[tuple['MFCWidget', float]],
     tuple['RPIPinWidget', list[str], list[str]] | None,
     tuple['VideoPlayer', bool] | None,
@@ -442,7 +443,9 @@ class ExperimentStages(EventDispatcher):
                 self._rand_valve_dev.set_valves(low=(self._rand_valve_name,))
 
     def _run_protocol(
-            self, protocol: List[FlatProtocolItem]):
+            self, protocol: List[FlatProtocolItem], valves_used: list[bool], mfcs_used: list[bool],
+            pins_used: bool, video_used: bool,
+    ):
         self._total_time = sum(item[0] for item in protocol)
         self._total_stage_time = 0
         rem_time = 0.
@@ -471,17 +474,17 @@ class ExperimentStages(EventDispatcher):
             dur, valves, mfcs, pins, do_record = protocol[i]
 
             rem_time += dur
-            for board, values in valves:
-                if state_changed(board, values):
+            for (board, values), used in zip(valves, valves_used):
+                if used and state_changed(board, values):
                     board.set_valves(**values)
-            for board, value in mfcs:
-                if state_changed(board, value):
+            for (board, value), used in zip(mfcs, mfcs_used):
+                if used and state_changed(board, value):
                     board.set_value(value)
-            if pins is not None:
+            if pins is not None and pins_used:
                 widget, high, low = pins
                 if state_changed(widget, (high, low)):
                     widget.set_pins(high=high, low=low)
-            if do_record is not None:
+            if do_record is not None and video_used:
                 widget, record = do_record
                 if state_changed(widget, record):
                     if record:
@@ -561,25 +564,44 @@ class ExperimentStages(EventDispatcher):
         app: OlfCellApp = self._app
 
         try:
-            dev: ExecuteDevice
-            for dev in app.valve_boards + app.mfcs:
-                if not dev.is_running:
-                    raise TypeError('Not all valves/MFCs have been started')
-            if app.player.ffmpeg_player.play_state != "playing":
-                raise TypeError("Video is not playing")
-            if app.player.video_recorder.record_state != "none":
-                raise TypeError("Video recorder is already recording")
-
             if key not in self.protocols:
                 raise ValueError('Protocol not available')
             protocol = self._flatten_protocol(self.protocols[key])
             if not len(protocol):
                 raise ValueError('No protocol available')
+
+            dev: ExecuteDevice
+            valves_used = []
+            for i, dev in enumerate(app.valve_boards):
+                values = [val for p in protocol for val in p[1][i][1].values()]
+                valves_used.append(any(values))
+
+                if not dev.is_running and valves_used[-1]:
+                    raise TypeError('Some of the relay devices used have not been started')
+
+            mfcs_used = []
+            for i, dev in enumerate(app.mfcs):
+                values = [p[2][i][1] for p in protocol]
+                mfcs_used.append(any(values))
+
+                if not dev.is_running and mfcs_used[-1]:
+                    raise TypeError('Some of the MFCs used have not been started')
+
+            pins_used = any([bool(p[3] if p[3] is None else p[3][1]) for p in protocol])
+            if app.rpi_pins is not None and not app.rpi_pins.is_running and pins_used:
+                raise TypeError('The RPi pins device has not been started')
+
+            video_used = any([p[4] if p[4] is None else p[4][1] for p in protocol])
+            if video_used:
+                if app.player.ffmpeg_player.play_state != "playing":
+                    raise TypeError("Video is not playing")
+                if app.player.video_recorder.record_state != "none":
+                    raise TypeError("Video recorder is already recording")
         except Exception:
             self.stop()
             raise
 
-        self._run_protocol(protocol)
+        self._run_protocol(protocol, valves_used, mfcs_used, pins_used, video_used)
 
     def stop(self):
         if self._clock_event is not None:
